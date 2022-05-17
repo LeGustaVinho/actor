@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "com.legustavinho.legendary-tools-common": "https://github.com/LeGustaVinho/legendary-tools-common.git",
-	"com.legustavinho.legendary-tools-pool": "https://github.com/LeGustaVinho/pool.git",
+	"com.legustavinho.legendary-tools-pool": "https://github.com/LeGustaVinho/pool.git"
   },
   "author": {
     "name": "LeGustaVinho",
