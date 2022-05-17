@@ -1,0 +1,17 @@
+{
+    "name": "LegendaryTools.Actor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:7cfcc1a20ff91614a98283cdb05a1dbe",
+        "GUID:2247f345c1389cb428906dc038800b93"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
