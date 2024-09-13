@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using LegendaryTools.Systems.AssetProvider;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
@@ -10,21 +11,59 @@ namespace LegendaryTools.Systems.Actor
     [Serializable]
     public abstract class Actor : IActor
     {
-        protected static readonly Dictionary<Type, List<Actor>> allActorsByType = new Dictionary<Type, List<Actor>>();
-        protected ActorMonoBehaviour actorBehaviour;
-        protected readonly GameObject prefab;
+        protected static ActorSystemAssetLoadableConfig Config;
+        
+#if ODIN_INSPECTOR
+        protected static List<AssetLoaderConfig> PreloadQueue;
+#else
+        protected static List<TypeOfActorAssetLoader> PreloadQueue;
+#endif
+        
+        protected static readonly Dictionary<Type, List<Actor>> AllActorsByType = new Dictionary<Type, List<Actor>>();
+        
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+#endif
+        public ActorMonoBehaviour ActorBehaviour { get; protected set; }
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+#endif
+        public  GameObject Prefab { get; protected set; }
+
+        
+        public bool IsDestroyed { get; private set; }
+        
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+#endif
+        public bool IsAlive => !IsDestroyed;
+        public bool HasBody => ActorBehaviour != null;
+        
+        public event Action<Actor, ActorMonoBehaviour> OnAsyncActorBodyLoaded;
+        public event Action<Actor, ActorMonoBehaviour> OnPossessed;
+        public event Action<Actor, ActorMonoBehaviour> OnEjected;
+        public event Action<Actor, ActorMonoBehaviour> OnDestroyed;
+
+        private ILoadOperation handler;
 
         public Actor()
         {
-            GameObject newGO = CreateGameObject();
-            Init(newGO);
+            RegisterActor();
+        }
+        
+        public Actor(bool autoCreateGameObject)
+        {
+            if(autoCreateGameObject) CreateDynamicGameObject();
         }
 
         public Actor(GameObject prefab = null, string name = "")
         {
-            this.prefab = prefab;
-            GameObject newGO = CreateGameObject(name, prefab);
-            Init(newGO);
+            Prefab = prefab;
+            GameObject newGameObject = CreateGameObject(name, prefab);
+            Initialize(newGameObject);
         }
 
         public Actor(ActorMonoBehaviour actorBehaviour)
@@ -33,14 +72,52 @@ namespace LegendaryTools.Systems.Actor
             RegisterActor();
         }
 
-        private void Init(GameObject gameObject)
+        private void Initialize(GameObject gameObject)
         {
-            actorBehaviour = AddActorBehaviour(gameObject);
-            actorBehaviour.BindActor(this);
+            IsDestroyed = false;
+            ActorBehaviour = AddActorBehaviour(gameObject);
             RegisterActorBehaviourEvents();
             RegisterActor();
+            ActorBehaviour.BindActor(this);
         }
 
+        public static void Initialize(ActorSystemAssetLoadableConfig config, Action onInitialize = null)
+        {
+            Config = config;
+            Config.Initialize();
+
+#if ODIN_INSPECTOR
+            List<AssetLoaderConfig> assetLoaderConfigs = new List<AssetLoaderConfig>();
+            foreach (KeyValuePair<Type, AssetLoaderConfig> pair in Config.TypeByActorAssetLoadersTable)
+            {
+                assetLoaderConfigs.Add(pair.Value);
+            }
+            PreloadQueue = assetLoaderConfigs.FindAll(item => item.PreLoad);
+#else
+            PreloadQueue = Config.TypeByActorAssetLoaders.FindAll(item => item.AssetLoaderConfig.PreLoad);
+#endif
+            MonoBehaviourFacade.Instance.StartCoroutine(PreloadingAssets(onInitialize));
+        }
+        
+        private static IEnumerator PreloadingAssets(Action onInitialize = null)
+        {
+            for (int i = PreloadQueue.Count - 1; i >= 0; i--)
+            {
+#if ODIN_INSPECTOR
+                AssetLoaderConfig item = PreloadQueue[i];
+                item.PrepareLoadRoutine<ActorMonoBehaviour>();
+                yield return item.WaitLoadRoutine();
+                PreloadQueue.Remove(item);
+#else
+                TypeOfActorAssetLoader item = PreloadQueue[i];
+                item.AssetLoaderConfig.PrepareLoadRoutine<ActorMonoBehaviour>();
+                yield return item.AssetLoaderConfig.WaitLoadRoutine();
+                PreloadQueue.Remove(item);
+#endif
+            }
+            onInitialize?.Invoke();
+        }
+        
         public static void Destroy(Actor actor)
         {
             actor.Dispose();
@@ -48,7 +125,7 @@ namespace LegendaryTools.Systems.Actor
 
         public static Actor FindObjectOfType(Type type)
         {
-            if (allActorsByType.TryGetValue(type, out List<Actor> actors))
+            if (AllActorsByType.TryGetValue(type, out List<Actor> actors))
             {
                 return actors.FirstOrDefault();
             }
@@ -58,7 +135,7 @@ namespace LegendaryTools.Systems.Actor
 
         public static T FindObjectOfType<T>() where T : Actor<T>
         {
-            if (allActorsByType.TryGetValue(typeof(T), out List<Actor> actors))
+            if (AllActorsByType.TryGetValue(typeof(T), out List<Actor> actors))
             {
                 return actors.FirstOrDefault() as T;
             }
@@ -68,7 +145,7 @@ namespace LegendaryTools.Systems.Actor
 
         public static Actor[] FindObjectsOfType(Type type)
         {
-            if (allActorsByType.TryGetValue(type, out List<Actor> actors))
+            if (AllActorsByType.TryGetValue(type, out List<Actor> actors))
             {
                 return actors.ToArray();
             }
@@ -78,7 +155,7 @@ namespace LegendaryTools.Systems.Actor
 
         public static Actor[] FindObjectsOfType<T>() where T : Actor<T>
         {
-            if (allActorsByType.TryGetValue(typeof(T), out List<Actor> actors))
+            if (AllActorsByType.TryGetValue(typeof(T), out List<Actor> actors))
             {
                 return actors.ToArray();
             }
@@ -86,7 +163,11 @@ namespace LegendaryTools.Systems.Actor
             return null;
         }
 
-        public bool Possess(ActorMonoBehaviour target)
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+#endif
+        public virtual bool Possess(ActorMonoBehaviour target)
         {
             if (target.Actor != null)
             {
@@ -95,110 +176,138 @@ namespace LegendaryTools.Systems.Actor
 
             Eject();
 
-            actorBehaviour = target;
-            actorBehaviour.BindActor(this);
+            ActorBehaviour = target;
+            ActorBehaviour.BindActor(this);
             RegisterActorBehaviourEvents();
-
+            OnPossessed?.Invoke(this, target);
             return true;
         }
 
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+        [Sirenix.OdinInspector.ShowIf("HasBody")]
+#endif
         public void Eject()
         {
-            if (actorBehaviour != null)
+            if (ActorBehaviour != null)
             {
                 UnRegisterActorBehaviourEvents();
-                actorBehaviour.UnBindActor();
-                actorBehaviour = null;
+                ActorBehaviour.UnBindActor();
+                ActorMonoBehaviour aux = ActorBehaviour;
+                ActorBehaviour = null;
+                OnEjected?.Invoke(this, aux);
             }
         }
 
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+        [Sirenix.OdinInspector.HideIf("HasBody")]
+#endif
         public void RegenerateBody()
         {
-            if (actorBehaviour == null)
+            if (ActorBehaviour == null)
             {
-                GameObject newGO = CreateGameObject(prefab: prefab);
-                Init(newGO);
+                GameObject newGameObject = CreateGameObject(prefab: Prefab);
+                Initialize(newGameObject);
             }
+        }
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowIf("HasBody")]
+        [Sirenix.OdinInspector.ShowIf("IsAlive")]
+#endif
+        public virtual void Dispose()
+        {
+            void DestroyMyGameObject()
+            {
+                if (ActorBehaviour != null)
+                {
+                    DestroyGameObject(ActorBehaviour);
+                }
+            }
+            
+            InternalOnDestroy(DestroyMyGameObject);
         }
         
         protected void RegisterActorBehaviourEvents()
         {
-            actorBehaviour.WhenAwake += Awake;
-            actorBehaviour.WhenStart += Start;
-            actorBehaviour.WhenUpdate += Update;
-            actorBehaviour.WhenDestroy += InternalOnDestroy;
-            actorBehaviour.WhenEnable += OnEnable;
-            actorBehaviour.WhenDisable += OnDisable;
-            actorBehaviour.WhenTriggerEnter += OnTriggerEnter;
-            actorBehaviour.WhenTriggerExit += OnTriggerExit;
-            actorBehaviour.WhenCollisionEnter += OnCollisionEnter;
-            actorBehaviour.WhenCollisionExit += OnCollisionExit;
-            actorBehaviour.WhenLateUpdate += LateUpdate;
-            actorBehaviour.WhenFixedUpdate += FixedUpdate;
-            actorBehaviour.WhenCollisionStay += OnCollisionStay;
-            actorBehaviour.WhenApplicationFocus += OnApplicationFocus;
-            actorBehaviour.WhenApplicationPause += OnApplicationPause;
-            actorBehaviour.WhenApplicationQuit += OnApplicationQuit;
-            actorBehaviour.WhenBecameVisible += OnBecameVisible;
-            actorBehaviour.WhenBecameInvisible += OnBecameInvisible;
-            actorBehaviour.WhenCollisionEnter2D += OnCollisionEnter2D;
-            actorBehaviour.WhenCollisionStay2D += OnCollisionStay2D;
-            actorBehaviour.WhenCollisionExit2D += OnCollisionExit2D;
-            actorBehaviour.WhenDrawGizmos += OnDrawGizmos;
-            actorBehaviour.WhenDrawGizmosSelected += OnDrawGizmosSelected;
-            actorBehaviour.WhenGUI += OnGUI;
-            actorBehaviour.WhenPreCull += OnPreCull;
-            actorBehaviour.WhenPreRender += OnPreRender;
-            actorBehaviour.WhenPostRender += OnPostRender;
-            actorBehaviour.WhenRenderImage += OnRenderImage;
-            actorBehaviour.WhenRenderObject += OnRenderObject;
-            actorBehaviour.WhenTransformChildrenChanged += OnTransformChildrenChanged;
-            actorBehaviour.WhenTransformParentChanged += OnTransformParentChanged;
-            actorBehaviour.WhenTriggerEnter2D += OnTriggerEnter2D;
-            actorBehaviour.WhenTriggerStay2D += OnTriggerStay2D;
-            actorBehaviour.WhenTriggerExit2D += OnTriggerExit2D;
-            actorBehaviour.WhenValidate += OnValidate;
-            actorBehaviour.WhenWillRenderObject += OnWillRenderObject;
+            ActorBehaviour.WhenAwake += Awake;
+            ActorBehaviour.WhenStart += Start;
+            ActorBehaviour.WhenUpdate += Update;
+            ActorBehaviour.WhenDestroy += InternalOnDestroy;
+            ActorBehaviour.WhenEnable += OnEnable;
+            ActorBehaviour.WhenDisable += OnDisable;
+            ActorBehaviour.WhenTriggerEnter += OnTriggerEnter;
+            ActorBehaviour.WhenTriggerExit += OnTriggerExit;
+            ActorBehaviour.WhenCollisionEnter += OnCollisionEnter;
+            ActorBehaviour.WhenCollisionExit += OnCollisionExit;
+            ActorBehaviour.WhenLateUpdate += LateUpdate;
+            ActorBehaviour.WhenFixedUpdate += FixedUpdate;
+            ActorBehaviour.WhenCollisionStay += OnCollisionStay;
+            ActorBehaviour.WhenApplicationFocus += OnApplicationFocus;
+            ActorBehaviour.WhenApplicationPause += OnApplicationPause;
+            ActorBehaviour.WhenApplicationQuit += OnApplicationQuit;
+            ActorBehaviour.WhenBecameVisible += OnBecameVisible;
+            ActorBehaviour.WhenBecameInvisible += OnBecameInvisible;
+            ActorBehaviour.WhenCollisionEnter2D += OnCollisionEnter2D;
+            ActorBehaviour.WhenCollisionStay2D += OnCollisionStay2D;
+            ActorBehaviour.WhenCollisionExit2D += OnCollisionExit2D;
+            ActorBehaviour.WhenDrawGizmos += OnDrawGizmos;
+            ActorBehaviour.WhenDrawGizmosSelected += OnDrawGizmosSelected;
+            ActorBehaviour.WhenGUI += OnGUI;
+            ActorBehaviour.WhenPreCull += OnPreCull;
+            ActorBehaviour.WhenPreRender += OnPreRender;
+            ActorBehaviour.WhenPostRender += OnPostRender;
+            ActorBehaviour.WhenRenderImage += OnRenderImage;
+            ActorBehaviour.WhenRenderObject += OnRenderObject;
+            ActorBehaviour.WhenTransformChildrenChanged += OnTransformChildrenChanged;
+            ActorBehaviour.WhenTransformParentChanged += OnTransformParentChanged;
+            ActorBehaviour.WhenTriggerEnter2D += OnTriggerEnter2D;
+            ActorBehaviour.WhenTriggerStay2D += OnTriggerStay2D;
+            ActorBehaviour.WhenTriggerExit2D += OnTriggerExit2D;
+            ActorBehaviour.WhenValidate += OnValidate;
+            ActorBehaviour.WhenWillRenderObject += OnWillRenderObject;
         }
 
         protected void UnRegisterActorBehaviourEvents()
         {
-            actorBehaviour.WhenAwake -= Awake;
-            actorBehaviour.WhenStart -= Start;
-            actorBehaviour.WhenUpdate -= Update;
-            actorBehaviour.WhenDestroy -= InternalOnDestroy;
-            actorBehaviour.WhenEnable -= OnEnable;
-            actorBehaviour.WhenDisable -= OnDisable;
-            actorBehaviour.WhenTriggerEnter -= OnTriggerEnter;
-            actorBehaviour.WhenTriggerExit -= OnTriggerExit;
-            actorBehaviour.WhenCollisionEnter -= OnCollisionEnter;
-            actorBehaviour.WhenCollisionExit -= OnCollisionExit;
-            actorBehaviour.WhenLateUpdate -= LateUpdate;
-            actorBehaviour.WhenFixedUpdate -= FixedUpdate;
-            actorBehaviour.WhenCollisionStay -= OnCollisionStay;
-            actorBehaviour.WhenApplicationFocus -= OnApplicationFocus;
-            actorBehaviour.WhenApplicationPause -= OnApplicationPause;
-            actorBehaviour.WhenApplicationQuit -= OnApplicationQuit;
-            actorBehaviour.WhenBecameVisible -= OnBecameVisible;
-            actorBehaviour.WhenBecameInvisible -= OnBecameInvisible;
-            actorBehaviour.WhenCollisionEnter2D -= OnCollisionEnter2D;
-            actorBehaviour.WhenCollisionStay2D -= OnCollisionStay2D;
-            actorBehaviour.WhenCollisionExit2D -= OnCollisionExit2D;
-            actorBehaviour.WhenDrawGizmos -= OnDrawGizmos;
-            actorBehaviour.WhenDrawGizmosSelected -= OnDrawGizmosSelected;
-            actorBehaviour.WhenGUI -= OnGUI;
-            actorBehaviour.WhenPreCull -= OnPreCull;
-            actorBehaviour.WhenPreRender -= OnPreRender;
-            actorBehaviour.WhenPostRender -= OnPostRender;
-            actorBehaviour.WhenRenderImage -= OnRenderImage;
-            actorBehaviour.WhenRenderObject -= OnRenderObject;
-            actorBehaviour.WhenTransformChildrenChanged -= OnTransformChildrenChanged;
-            actorBehaviour.WhenTransformParentChanged -= OnTransformParentChanged;
-            actorBehaviour.WhenTriggerEnter2D -= OnTriggerEnter2D;
-            actorBehaviour.WhenTriggerStay2D -= OnTriggerStay2D;
-            actorBehaviour.WhenTriggerExit2D -= OnTriggerExit2D;
-            actorBehaviour.WhenValidate -= OnValidate;
-            actorBehaviour.WhenWillRenderObject -= OnWillRenderObject;
+            ActorBehaviour.WhenAwake -= Awake;
+            ActorBehaviour.WhenStart -= Start;
+            ActorBehaviour.WhenUpdate -= Update;
+            ActorBehaviour.WhenDestroy -= InternalOnDestroy;
+            ActorBehaviour.WhenEnable -= OnEnable;
+            ActorBehaviour.WhenDisable -= OnDisable;
+            ActorBehaviour.WhenTriggerEnter -= OnTriggerEnter;
+            ActorBehaviour.WhenTriggerExit -= OnTriggerExit;
+            ActorBehaviour.WhenCollisionEnter -= OnCollisionEnter;
+            ActorBehaviour.WhenCollisionExit -= OnCollisionExit;
+            ActorBehaviour.WhenLateUpdate -= LateUpdate;
+            ActorBehaviour.WhenFixedUpdate -= FixedUpdate;
+            ActorBehaviour.WhenCollisionStay -= OnCollisionStay;
+            ActorBehaviour.WhenApplicationFocus -= OnApplicationFocus;
+            ActorBehaviour.WhenApplicationPause -= OnApplicationPause;
+            ActorBehaviour.WhenApplicationQuit -= OnApplicationQuit;
+            ActorBehaviour.WhenBecameVisible -= OnBecameVisible;
+            ActorBehaviour.WhenBecameInvisible -= OnBecameInvisible;
+            ActorBehaviour.WhenCollisionEnter2D -= OnCollisionEnter2D;
+            ActorBehaviour.WhenCollisionStay2D -= OnCollisionStay2D;
+            ActorBehaviour.WhenCollisionExit2D -= OnCollisionExit2D;
+            ActorBehaviour.WhenDrawGizmos -= OnDrawGizmos;
+            ActorBehaviour.WhenDrawGizmosSelected -= OnDrawGizmosSelected;
+            ActorBehaviour.WhenGUI -= OnGUI;
+            ActorBehaviour.WhenPreCull -= OnPreCull;
+            ActorBehaviour.WhenPreRender -= OnPreRender;
+            ActorBehaviour.WhenPostRender -= OnPostRender;
+            ActorBehaviour.WhenRenderImage -= OnRenderImage;
+            ActorBehaviour.WhenRenderObject -= OnRenderObject;
+            ActorBehaviour.WhenTransformChildrenChanged -= OnTransformChildrenChanged;
+            ActorBehaviour.WhenTransformParentChanged -= OnTransformParentChanged;
+            ActorBehaviour.WhenTriggerEnter2D -= OnTriggerEnter2D;
+            ActorBehaviour.WhenTriggerStay2D -= OnTriggerStay2D;
+            ActorBehaviour.WhenTriggerExit2D -= OnTriggerExit2D;
+            ActorBehaviour.WhenValidate -= OnValidate;
+            ActorBehaviour.WhenWillRenderObject -= OnWillRenderObject;
         }
 
         protected abstract void RegisterActor();
@@ -214,6 +323,40 @@ namespace LegendaryTools.Systems.Actor
 
             return Object.Instantiate(prefab);
         }
+        
+        protected virtual void CreateDynamicGameObject()
+        {
+            void CreateAndInitGameObject(object prefabActor)
+            {
+                if (prefabActor is ActorMonoBehaviour actorMonoBehaviourPrefab)
+                {
+                    Prefab = actorMonoBehaviourPrefab.gameObject;
+                }
+                else if(prefabActor is GameObject actorMonoBehaviourPrefabGameObject)
+                {
+                    if (actorMonoBehaviourPrefabGameObject.GetComponent<ActorMonoBehaviour>() != null)
+                    {
+                        Prefab = actorMonoBehaviourPrefabGameObject;
+                    }
+                }
+                
+                GameObject newGo = CreateGameObject(this.GetType().ToString(), Prefab);
+                Initialize(newGo);
+                OnAsyncActorBodyLoaded?.Invoke(this, ActorBehaviour);
+            }
+            
+            if (Config != null)
+            {
+                if (Config.TypeByActorAssetLoadersTable.TryGetValue(this.GetType(), out AssetLoaderConfig assetLoaderConfig))
+                {
+                    handler = assetLoaderConfig.LoadWithCoroutines<ActorMonoBehaviour>(CreateAndInitGameObject);
+                }
+            }
+            else
+            {
+                CreateAndInitGameObject(Prefab);
+            }
+        }
 
         protected virtual ActorMonoBehaviour AddActorBehaviour(GameObject gameObject)
         {
@@ -228,6 +371,52 @@ namespace LegendaryTools.Systems.Actor
             Object.Destroy(actorBehaviour.GameObject);
 #endif
         }
+
+        private void InternalOnDestroy()
+        {
+            InternalOnDestroy(null);
+        }
+
+        private void InternalOnDestroy(Action afterActorBehaviourCleanUp)
+        {
+            StopAllCoroutines();
+            IsDestroyed = true;
+            OnDestroy();
+            OnDestroyed?.Invoke(this, ActorBehaviour);
+            
+            UnRegisterActorBehaviourEvents();
+            UnRegisterActor();
+            if (ActorBehaviour != null)
+            {
+                ActorBehaviour.UnBindActor();
+                afterActorBehaviourCleanUp?.Invoke();
+            }
+
+            ActorBehaviour = null;
+
+            if (handler != null)
+            {
+                handler.Release();
+                handler = null;
+            }
+        }
+
+        private bool CanExecuteCommandToBody()
+        {
+            if (ActorBehaviour == null)
+            {
+                Debug.LogError("[Actor] You are trying to send a command, but there is no body (AKA MonoBehaviour) connected.");
+                return false;
+            }
+            
+            if (IsDestroyed)
+            {
+                Debug.LogError("[Actor] You are trying to send a command, but this Actor was marked as destroyed.");
+                return false;
+            }
+
+            return true;
+        }
         
         #region MonoBehaviour calls
 
@@ -241,17 +430,6 @@ namespace LegendaryTools.Systems.Actor
 
         protected virtual void Update()
         {
-        }
-
-        private void InternalOnDestroy()
-        {
-            OnDestroy();
-
-            StopAllCoroutines();
-            UnRegisterActorBehaviourEvents();
-            UnRegisterActor();
-            actorBehaviour.UnBindActor();
-            actorBehaviour = null;
         }
 
         protected virtual void OnDestroy()
@@ -392,394 +570,418 @@ namespace LegendaryTools.Systems.Actor
 
         public string Name
         {
-            get => actorBehaviour.GameObject.name;
-            set => actorBehaviour.GameObject.name = value;
+            get => ActorBehaviour.GameObject.name;
+            set => ActorBehaviour.GameObject.name = value;
         }
 
         public string Tag
         {
-            get => actorBehaviour.GameObject.tag;
-            set => actorBehaviour.GameObject.tag = value;
+            get => ActorBehaviour.GameObject.tag;
+            set => ActorBehaviour.GameObject.tag = value;
         }
 
         public HideFlags HideFlags
         {
-            get => actorBehaviour.GameObject.hideFlags;
-            set => actorBehaviour.GameObject.hideFlags = value;
+            get => ActorBehaviour.GameObject.hideFlags;
+            set => ActorBehaviour.GameObject.hideFlags = value;
         }
 
-        public bool ActiveInHierarchy => actorBehaviour.GameObject.activeInHierarchy;
-        public bool ActiveSelf => actorBehaviour.GameObject.activeInHierarchy;
+        public bool ActiveInHierarchy => ActorBehaviour.GameObject.activeInHierarchy;
+        public bool ActiveSelf => ActorBehaviour.GameObject.activeInHierarchy;
 
         public int Layer
         {
-            get => actorBehaviour.GameObject.layer;
-            set => actorBehaviour.GameObject.layer = value;
+            get => ActorBehaviour.GameObject.layer;
+            set => ActorBehaviour.GameObject.layer = value;
         }
 
-        public Scene Scene => actorBehaviour.GameObject.scene;
+        public Scene Scene => ActorBehaviour.GameObject.scene;
 
         public void SetActive(bool value)
         {
-            actorBehaviour.GameObject.SetActive(value);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.GameObject.SetActive(value);
         }
 
         public Component AddComponent(Type componentType)
         {
-            return actorBehaviour.GameObject.AddComponent(componentType);
+            return ActorBehaviour.GameObject.AddComponent(componentType);
         }
 
         public T AddComponent<T>() where T : Component
         {
-            return actorBehaviour.GameObject.AddComponent<T>();
+            return ActorBehaviour.GameObject.AddComponent<T>();
         }
 
         public int GetInstanceID()
         {
-            return actorBehaviour.GameObject.GetInstanceID();
+            return ActorBehaviour.GameObject.GetInstanceID();
         }
 
         public T GetComponent<T>() where T : Component
         {
-            return actorBehaviour.GameObject.GetComponent<T>();
+            return ActorBehaviour.GameObject.GetComponent<T>();
         }
 
         public Component GetComponent(Type type)
         {
-            return actorBehaviour.GameObject.GetComponent(type);
+            return ActorBehaviour.GameObject.GetComponent(type);
         }
 
         public Component GetComponent(string type)
         {
-            return actorBehaviour.GameObject.GetComponent(type);
+            return ActorBehaviour.GameObject.GetComponent(type);
         }
 
         public Component GetComponentInChildren(Type t)
         {
-            return actorBehaviour.GameObject.GetComponentInChildren(t);
+            return ActorBehaviour.GameObject.GetComponentInChildren(t);
         }
 
         public T GetComponentInChildren<T>() where T : Component
         {
-            return actorBehaviour.GameObject.GetComponentInChildren<T>();
+            return ActorBehaviour.GameObject.GetComponentInChildren<T>();
         }
 
         public Component GetComponentInParent(Type t)
         {
-            return actorBehaviour.GameObject.GetComponentInParent(t);
+            return ActorBehaviour.GameObject.GetComponentInParent(t);
         }
 
         public T GetComponentInParent<T>() where T : Component
         {
-            return actorBehaviour.GameObject.GetComponentInParent<T>();
+            return ActorBehaviour.GameObject.GetComponentInParent<T>();
         }
 
         public Component[] GetComponents(Type type)
         {
-            return actorBehaviour.GameObject.GetComponents(type);
+            return ActorBehaviour.GameObject.GetComponents(type);
         }
 
         public T[] GetComponents<T>() where T : Component
         {
-            return actorBehaviour.GameObject.GetComponents<T>();
+            return ActorBehaviour.GameObject.GetComponents<T>();
         }
 
         public Component[] GetComponentsInChildren(Type t, bool includeInactive)
         {
-            return actorBehaviour.GameObject.GetComponentsInChildren(t, includeInactive);
+            return ActorBehaviour.GameObject.GetComponentsInChildren(t, includeInactive);
         }
 
         public T[] GetComponentsInChildren<T>(bool includeInactive) where T : Component
         {
-            return actorBehaviour.GameObject.GetComponentsInChildren<T>(includeInactive);
+            return ActorBehaviour.GameObject.GetComponentsInChildren<T>(includeInactive);
         }
 
         public Component[] GetComponentsInParent(Type t, bool includeInactive = false)
         {
-            return actorBehaviour.GameObject.GetComponentsInParent(t, includeInactive);
+            return ActorBehaviour.GameObject.GetComponentsInParent(t, includeInactive);
         }
 
         public T[] GetComponentsInParent<T>(bool includeInactive = false) where T : Component
         {
-            return actorBehaviour.GameObject.GetComponentsInParent<T>(includeInactive);
+            return ActorBehaviour.GameObject.GetComponentsInParent<T>(includeInactive);
         }
 
         public bool Enabled
         {
-            get => actorBehaviour.enabled;
-            set => actorBehaviour.enabled = true;
+            get => ActorBehaviour.enabled;
+            set => ActorBehaviour.enabled = value;
         }
 
-        public bool IsActiveAndEnabled => actorBehaviour.isActiveAndEnabled;
+        public bool IsActiveAndEnabled => ActorBehaviour.isActiveAndEnabled;
 
         public void CancelInvoke()
         {
-            actorBehaviour.CancelInvoke();
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.CancelInvoke();
         }
 
         public void CancelInvoke(string methodName)
         {
-            actorBehaviour.CancelInvoke(methodName);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.CancelInvoke(methodName);
         }
 
         public void Invoke(string methodName, float time)
         {
-            actorBehaviour.Invoke(methodName, time);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Invoke(methodName, time);
         }
 
         public void InvokeRepeating(string methodName, float time, float repeatRate)
         {
-            actorBehaviour.InvokeRepeating(methodName, time, repeatRate);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.InvokeRepeating(methodName, time, repeatRate);
         }
 
         public bool IsInvoking(string methodName)
         {
-            return actorBehaviour.IsInvoking(methodName);
+            return ActorBehaviour.IsInvoking(methodName);
         }
 
         public Coroutine StartCoroutine(IEnumerator routine)
         {
-            return actorBehaviour.StartCoroutine(routine);
+            return ActorBehaviour.StartCoroutine(routine);
         }
 
         public Coroutine StartCoroutine(string methodName, object value = null)
         {
-            return actorBehaviour.StartCoroutine(methodName, value);
+            return ActorBehaviour.StartCoroutine(methodName, value);
         }
 
         public void StopAllCoroutines()
         {
-            actorBehaviour.StopAllCoroutines();
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.StopAllCoroutines();
         }
 
         public void StopCoroutine(string methodName)
         {
-            actorBehaviour.StopCoroutine(methodName);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.StopCoroutine(methodName);
         }
 
         public void StopCoroutine(IEnumerator routine)
         {
-            actorBehaviour.StopCoroutine(routine);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.StopCoroutine(routine);
         }
 
         public void StopCoroutine(Coroutine routine)
         {
-            actorBehaviour.StopCoroutine(routine);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.StopCoroutine(routine);
         }
 
-        public int ChildCount => actorBehaviour.Transform.childCount;
+        public int ChildCount => ActorBehaviour.Transform.childCount;
 
         public Vector3 EulerAngles
         {
-            get => actorBehaviour.Transform.eulerAngles;
-            set => actorBehaviour.Transform.eulerAngles = value;
+            get => ActorBehaviour.Transform.eulerAngles;
+            set => ActorBehaviour.Transform.eulerAngles = value;
         }
 
         public Vector3 Forward
         {
-            get => actorBehaviour.Transform.forward;
-            set => actorBehaviour.Transform.forward = value;
+            get => ActorBehaviour.Transform.forward;
+            set => ActorBehaviour.Transform.forward = value;
         }
 
         public bool HasChanged
         {
-            get => actorBehaviour.Transform.hasChanged;
-            set => actorBehaviour.Transform.hasChanged = value;
+            get => ActorBehaviour.Transform.hasChanged;
+            set => ActorBehaviour.Transform.hasChanged = value;
         }
 
-        public int HierarchyCapacity => actorBehaviour.Transform.hierarchyCount;
+        public int HierarchyCapacity => ActorBehaviour.Transform.hierarchyCount;
 
-        public int HierarchyCount => actorBehaviour.Transform.hierarchyCount;
+        public int HierarchyCount => ActorBehaviour.Transform.hierarchyCount;
 
         public Vector3 LocalEulerAngles
         {
-            get => actorBehaviour.Transform.localEulerAngles;
-            set => actorBehaviour.Transform.localEulerAngles = value;
+            get => ActorBehaviour.Transform.localEulerAngles;
+            set => ActorBehaviour.Transform.localEulerAngles = value;
         }
 
         public Vector3 LocalPosition
         {
-            get => actorBehaviour.Transform.localPosition;
-            set => actorBehaviour.Transform.localPosition = value;
+            get => ActorBehaviour.Transform.localPosition;
+            set => ActorBehaviour.Transform.localPosition = value;
         }
 
         public Quaternion LocalRotation
         {
-            get => actorBehaviour.Transform.localRotation;
-            set => actorBehaviour.Transform.localRotation = value;
+            get => ActorBehaviour.Transform.localRotation;
+            set => ActorBehaviour.Transform.localRotation = value;
         }
 
         public Vector3 LocalScale
         {
-            get => actorBehaviour.Transform.localScale;
-            set => actorBehaviour.Transform.localScale = value;
+            get => ActorBehaviour.Transform.localScale;
+            set => ActorBehaviour.Transform.localScale = value;
         }
 
-        public Matrix4x4 LocalToWorldMatrix => actorBehaviour.Transform.localToWorldMatrix;
-        public Vector3 LossyScale => actorBehaviour.Transform.lossyScale;
+        public Matrix4x4 LocalToWorldMatrix => ActorBehaviour.Transform.localToWorldMatrix;
+        public Vector3 LossyScale => ActorBehaviour.Transform.lossyScale;
 
         public Transform Parent
         {
-            get => actorBehaviour.Transform.parent;
-            set => actorBehaviour.Transform.parent = value;
+            get => ActorBehaviour.Transform.parent;
+            set => ActorBehaviour.Transform.parent = value;
         }
 
         public Vector3 Position
         {
-            get => actorBehaviour.Transform.position;
-            set => actorBehaviour.Transform.position = value;
+            get => ActorBehaviour.Transform.position;
+            set => ActorBehaviour.Transform.position = value;
         }
 
         public Vector3 Right
         {
-            get => actorBehaviour.Transform.right;
-            set => actorBehaviour.Transform.right = value;
+            get => ActorBehaviour.Transform.right;
+            set => ActorBehaviour.Transform.right = value;
         }
 
-        public Transform Root => actorBehaviour.Transform.root;
+        public Transform Root => ActorBehaviour.Transform.root;
 
         public Quaternion Rotation
         {
-            get => actorBehaviour.Transform.rotation;
-            set => actorBehaviour.Transform.rotation = value;
+            get => ActorBehaviour.Transform.rotation;
+            set => ActorBehaviour.Transform.rotation = value;
         }
 
         public Vector3 Up
         {
-            get => actorBehaviour.Transform.up;
-            set => actorBehaviour.Transform.up = value;
+            get => ActorBehaviour.Transform.up;
+            set => ActorBehaviour.Transform.up = value;
         }
 
-        public Matrix4x4 WorldToLocalMatrix => actorBehaviour.Transform.worldToLocalMatrix;
+        public Matrix4x4 WorldToLocalMatrix => ActorBehaviour.Transform.worldToLocalMatrix;
 
         public void DetachChildren()
         {
-            actorBehaviour.Transform.DetachChildren();
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.DetachChildren();
         }
 
         public Transform Find(string name)
         {
-            return actorBehaviour.Transform.Find(name);
+            return ActorBehaviour.Transform.Find(name);
         }
 
         public Transform GetChild(int index)
         {
-            return actorBehaviour.Transform.GetChild(index);
+            return ActorBehaviour.Transform.GetChild(index);
         }
 
         public int GetSiblingIndex()
         {
-            return actorBehaviour.Transform.GetSiblingIndex();
+            return ActorBehaviour.Transform.GetSiblingIndex();
         }
 
         public Vector3 InverseTransformDirection(Vector3 direction)
         {
-            return actorBehaviour.Transform.InverseTransformDirection(direction);
+            return ActorBehaviour.Transform.InverseTransformDirection(direction);
         }
 
         public Vector3 InverseTransformPoint(Vector3 position)
         {
-            return actorBehaviour.Transform.InverseTransformDirection(position);
+            return ActorBehaviour.Transform.InverseTransformDirection(position);
         }
 
         public Vector3 InverseTransformVector(Vector3 vector)
         {
-            return actorBehaviour.Transform.InverseTransformDirection(vector);
+            return ActorBehaviour.Transform.InverseTransformDirection(vector);
         }
 
         public bool IsChildOf(Transform parent)
         {
-            return actorBehaviour.Transform.IsChildOf(parent);
+            return ActorBehaviour.Transform.IsChildOf(parent);
         }
 
         public void LookAt(Transform target)
         {
-            actorBehaviour.Transform.LookAt(target);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.LookAt(target);
         }
 
         public void LookAt(Transform target, Vector3 worldUp)
         {
-            actorBehaviour.Transform.LookAt(target, worldUp);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.LookAt(target, worldUp);
         }
 
         public void Rotate(Vector3 eulers, Space relativeTo = Space.Self)
         {
-            actorBehaviour.Transform.Rotate(eulers, relativeTo);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.Rotate(eulers, relativeTo);
         }
 
         public void Rotate(float xAngle, float yAngle, float zAngle, Space relativeTo = Space.Self)
         {
-            actorBehaviour.Transform.Rotate(xAngle, yAngle, zAngle, relativeTo);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.Rotate(xAngle, yAngle, zAngle, relativeTo);
         }
 
         public void Rotate(Vector3 axis, float angle, Space relativeTo = Space.Self)
         {
-            actorBehaviour.Transform.Rotate(axis, angle, relativeTo);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.Rotate(axis, angle, relativeTo);
         }
 
         public void RotateAround(Vector3 point, Vector3 axis, float angle)
         {
-            actorBehaviour.Transform.RotateAround(point, axis, angle);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.RotateAround(point, axis, angle);
         }
 
         public void SetAsFirstSibling()
         {
-            actorBehaviour.Transform.SetAsFirstSibling();
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.SetAsFirstSibling();
         }
 
         public void SetAsLastSibling()
         {
-            actorBehaviour.Transform.SetAsLastSibling();
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.SetAsLastSibling();
         }
 
         public void SetParent(Transform parent)
         {
-            actorBehaviour.Transform.SetParent(parent);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.SetParent(parent);
         }
 
         public void SetParent(Transform parent, bool worldPositionStays)
         {
-            actorBehaviour.Transform.SetParent(parent, worldPositionStays);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.SetParent(parent, worldPositionStays);
         }
 
         public void SetPositionAndRotation(Vector3 position, Quaternion rotation)
         {
-            actorBehaviour.Transform.SetPositionAndRotation(position, rotation);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.SetPositionAndRotation(position, rotation);
         }
 
         public void SetSiblingIndex(int index)
         {
-            actorBehaviour.Transform.SetSiblingIndex(index);
+            if (CanExecuteCommandToBody())
+                ActorBehaviour.Transform.SetSiblingIndex(index);
         }
 
         public Vector3 TransformDirection(Vector3 direction)
         {
-            return actorBehaviour.Transform.TransformDirection(direction);
+            return ActorBehaviour.Transform.TransformDirection(direction);
         }
 
         public Vector3 TransformPoint(Vector3 position)
         {
-            return actorBehaviour.Transform.TransformDirection(position);
+            return ActorBehaviour.Transform.TransformDirection(position);
         }
 
         public Vector3 TransformVector(Vector3 vector)
-        {
-            return actorBehaviour.Transform.TransformDirection(vector);
+        { 
+            return ActorBehaviour.Transform.TransformDirection(vector);
         }
 
         public void Translate(Vector3 translation)
         {
-            actorBehaviour.Transform.Translate(translation);
+            if(CanExecuteCommandToBody())
+                ActorBehaviour.Transform.Translate(translation);
         }
 
         public void Translate(Vector3 translation, Space relativeTo = Space.Self)
         {
-            actorBehaviour.Transform.Translate(translation, relativeTo);
+            if(CanExecuteCommandToBody())
+                ActorBehaviour.Transform.Translate(translation, relativeTo);
         }
 
-        public Transform Transform => actorBehaviour.Transform;
-        public RectTransform RectTransform => actorBehaviour.RectTransform;
-        public GameObject GameObject => actorBehaviour.GameObject;
+        public Transform Transform => ActorBehaviour.Transform;
+        public RectTransform RectTransform => ActorBehaviour.RectTransform;
+        public GameObject GameObject => ActorBehaviour.GameObject;
 
         public Vector2 AnchoredPosition
         {
@@ -871,18 +1073,6 @@ namespace LegendaryTools.Systems.Actor
             }
         }
         
-        public virtual void Dispose()
-        {
-            if (actorBehaviour != null)
-            {
-                DestroyGameObject(actorBehaviour);
-            }
-            else
-            {
-                UnRegisterActor();
-            }
-        }
-        
         #endregion
     }
 
@@ -890,6 +1080,10 @@ namespace LegendaryTools.Systems.Actor
     public class Actor<TClass> : Actor
     {
         public Actor() : base()
+        {
+        }
+        
+        public Actor(bool autoCreateGameObject) : base(autoCreateGameObject)
         {
         }
 
@@ -900,44 +1094,62 @@ namespace LegendaryTools.Systems.Actor
         protected override void RegisterActor()
         {
             Type type = typeof(TClass);
-            if (!allActorsByType.ContainsKey(type))
+            if (!AllActorsByType.ContainsKey(type))
             {
-                allActorsByType.Add(type, new List<Actor>());
+                AllActorsByType.Add(type, new List<Actor>());
             }
 
-            if (!allActorsByType[type].Contains(this))
+            if (!AllActorsByType[type].Contains(this))
             {
-                allActorsByType[type].Add(this);
+                AllActorsByType[type].Add(this);
             }
         }
 
         protected override void UnRegisterActor()
         {
             Type type = typeof(TClass);
-            if (allActorsByType.ContainsKey(type))
+            if (AllActorsByType.ContainsKey(type))
             {
-                if (allActorsByType[type].Contains(this))
+                if (AllActorsByType[type].Contains(this))
                 {
-                    allActorsByType[type].Remove(this);
+                    AllActorsByType[type].Remove(this);
                 }
             }
         }
     }
 
     [Serializable]
-    public class Actor<TClass, TBehaviour> : Actor<TClass>
+    public class Actor<TClass, TBehaviour> : Actor<TClass>, IActorTyped<TBehaviour>
         where TBehaviour : ActorMonoBehaviour
     {
+#if ODIN_INSPECTOR
+        [Sirenix.OdinInspector.ShowInInspector]
+#endif
         public TBehaviour BodyBehaviour { get; private set; }
 
         public Actor() : base()
         {
-            BodyBehaviour = actorBehaviour as TBehaviour;
+            BodyBehaviour = ActorBehaviour as TBehaviour;
+        }
+        
+        public Actor(bool autoCreateGameObject) : base(autoCreateGameObject)
+        {
+            BodyBehaviour = ActorBehaviour as TBehaviour;
         }
 
         public Actor(GameObject prefab = null, string name = "") : base(prefab, name)
         {
-            BodyBehaviour = actorBehaviour as TBehaviour;
+            BodyBehaviour = ActorBehaviour as TBehaviour;
+        }
+
+        public override bool Possess(ActorMonoBehaviour target)
+        {
+            if (target.Actor != null)
+            {
+                return false;
+            }
+            BodyBehaviour = target as TBehaviour;
+            return base.Possess(target);
         }
 
         protected override ActorMonoBehaviour AddActorBehaviour(GameObject gameObject)

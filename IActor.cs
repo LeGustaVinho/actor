@@ -8,5 +8,23 @@ namespace LegendaryTools.Systems.Actor
         Transform Transform { get; }
         RectTransform RectTransform { get; }
         GameObject GameObject { get; }
+        ActorMonoBehaviour ActorBehaviour { get; }
+        GameObject Prefab { get; }
+        bool IsDestroyed { get; }
+        bool IsAlive { get; }
+        bool HasBody { get; }
+        event Action<Actor, ActorMonoBehaviour> OnAsyncActorBodyLoaded;
+        event Action<Actor, ActorMonoBehaviour> OnPossessed;
+        event Action<Actor, ActorMonoBehaviour> OnEjected;
+        event Action<Actor, ActorMonoBehaviour> OnDestroyed;
+        bool Possess(ActorMonoBehaviour target);
+        void Eject();
+        void RegenerateBody();
+    }
+
+    public interface IActorTyped<TBehaviour> : IActor
+        where TBehaviour : ActorMonoBehaviour
+    {
+        TBehaviour BodyBehaviour { get; }
     }
 }

@@ -3,14 +3,53 @@ using UnityEngine;
 
 namespace LegendaryTools.Systems.Actor
 {
-    public class ActorMonoBehaviour : MonoBehaviour
+    public class ActorMonoBehaviour : 
+#if ODIN_INSPECTOR && ACTOR_SERIALIZED_MONOBEHAVIOUR
+        Sirenix.OdinInspector.SerializedMonoBehaviour, IActorMonoBehaviour
+#else
+        MonoBehaviour, IActorMonoBehaviour
+#endif
     {
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+#endif
         public Actor Actor { get; protected set; }
+        
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowIn(Sirenix.OdinInspector.PrefabKind.InstanceInScene)] 
+#endif
+        public bool AutoCreateActor;
+        
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowIn(Sirenix.OdinInspector.PrefabKind.InstanceInScene)] 
+#endif
+        [TypeFilter(typeof(Actor))]
+        public SerializableType ActorType;
 
-        public Transform Transform;
-        public RectTransform RectTransform;
-        public GameObject GameObject;
+        [SerializeField] private Transform _transform;
+        [SerializeField] private RectTransform _rectTransform;
+        [SerializeField] private GameObject _gameObject;
+        
+        public Transform Transform
+        {
+            get => _transform;
+            private set => _transform = value;
+        }
+        public RectTransform RectTransform
+        {
+            get => _rectTransform;
+            private set => _rectTransform = value;
+        }
+        public GameObject GameObject
+        {
+            get => _gameObject;
+            private set => _gameObject = value;
+        }
 
+        public event Action<ActorMonoBehaviour, Actor> OnActorBinded;
+        public event Action<ActorMonoBehaviour, Actor> OnActorUnbinded;
+        
         #region MonoBehaviour Events
 
         public event Action WhenAwake;
@@ -57,6 +96,7 @@ namespace LegendaryTools.Systems.Actor
             Actor = actor;
             FillComponents();
             OnActorBind(this, actor);
+            OnActorBinded?.Invoke(this, actor);
         }
 
         public void UnBindActor()
@@ -64,6 +104,16 @@ namespace LegendaryTools.Systems.Actor
             Actor aux = Actor;
             Actor = null;
             OnActorBind(this, aux);
+            OnActorUnbinded?.Invoke(this, aux);
+        }
+
+#if ODIN_INSPECTOR 
+        [Sirenix.OdinInspector.ShowInInspector]
+        [Sirenix.OdinInspector.HideInEditorMode]
+#endif
+        public void Suicide()
+        {
+            Destroy(gameObject); 
         }
 
         protected virtual void OnActorBind(ActorMonoBehaviour behaviour, Actor actor)
@@ -78,9 +128,9 @@ namespace LegendaryTools.Systems.Actor
         
         protected virtual void FillComponents()
         {
-            Transform = GetComponent<Transform>();
-            RectTransform = GetComponent<RectTransform>();
-            GameObject = gameObject;
+            _transform = GetComponent<Transform>();
+            _rectTransform = GetComponent<RectTransform>();
+            _gameObject = gameObject;
         }
         
         #region MonoBehaviour
@@ -88,7 +138,18 @@ namespace LegendaryTools.Systems.Actor
         protected virtual void Awake()
         {
             FillComponents();
-
+            if (AutoCreateActor && Actor == null)
+            {
+                object newObject = Activator.CreateInstance(ActorType.Type);
+                if (newObject is Actor newActor)
+                {
+                    newActor.Possess(this);
+                }
+                else
+                {
+                    Debug.Log($"[ActorMonoBehaviour] Auto create Actor of type {ActorType.Type.FullName} failed because is not a Actor");
+                }
+            }
             WhenAwake?.Invoke();
         }
 
@@ -259,6 +320,15 @@ namespace LegendaryTools.Systems.Actor
 
         protected virtual void OnValidate()
         {
+            FillComponents();
+
+            if (!gameObject.IsInScene() && AutoCreateActor)
+            {
+                AutoCreateActor = false;
+                Debug.LogError("[ActorMonoBehaviour] You cant allow AutoCreateActor for Prefabs, only for gamObjects in scene !", this);
+                this.SetDirty();
+            }
+            
             WhenValidate?.Invoke();
         }
 
@@ -266,23 +336,12 @@ namespace LegendaryTools.Systems.Actor
         {
             WhenWillRenderObject?.Invoke();
         }
-        
-        #endregion
-    }
 
-    public class SceneActorMonoBehaviour<TClass> : ActorMonoBehaviour
-        where TClass : Actor<TClass>
-    {
-        public bool AutoCreateActor;
-        
-        protected override void Awake()
+        protected virtual void Reset()
         {
-            if (AutoCreateActor && Actor == null)
-            {
-                Activator.CreateInstance(typeof(TClass), this); //This instance will auto possess this behaviour
-            }
-            
-            base.Awake();
+            FillComponents();
         }
+
+        #endregion
     }
 }

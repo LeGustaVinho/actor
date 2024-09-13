@@ -1,19 +1,30 @@
-﻿namespace LegendaryTools.Systems.Actor
+﻿using UnityEngine;
+
+namespace LegendaryTools.Systems.Actor
 {
-    public class PoolableActorMonoBehaviour : ActorMonoBehaviour, IPoolable
+    public class PoolableActorMonoBehaviour : ActorMonoBehaviour, IPoolableGameObject
     {
-        public void OnConstruct()
+        public virtual void OnConstruct()
         {
         }
 
-        public void OnCreate()
+        public virtual void OnCreate()
         {
-            Start();
+            
         }
 
-        public void OnRecycle()
+        public virtual void OnRecycle()
         {
             OnDestroy();
+        }
+
+        public virtual void OnConstruct(Vector3 position, Quaternion rotation, Transform parent)
+        {
+        }
+
+        public virtual void OnCreate(Vector3 position, Quaternion rotation, Transform parent)
+        {
+            Start();
         }
     }
 }
