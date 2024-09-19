@@ -4,7 +4,7 @@ using UnityEngine;
 namespace LegendaryTools.Systems.Actor
 {
     public class ActorMonoBehaviour : 
-#if ODIN_INSPECTOR && ACTOR_SERIALIZED_MONOBEHAVIOUR
+#if ODIN_INSPECTOR
         Sirenix.OdinInspector.SerializedMonoBehaviour, IActorMonoBehaviour
 #else
         MonoBehaviour, IActorMonoBehaviour

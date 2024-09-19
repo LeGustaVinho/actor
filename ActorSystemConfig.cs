@@ -29,7 +29,7 @@ namespace LegendaryTools.Systems.Actor
         public List<TypeOfActorAssetLoader> TypeByActorAssetLoaders = 
             new List<TypeOfActorAssetLoader>();
 
-        private Dictionary<Type, AssetLoaderConfig> TypeByActorAssetLoadersTable =
+        public Dictionary<Type, AssetLoaderConfig> TypeByActorAssetLoadersTable =
             new Dictionary<Type, AssetLoaderConfig>();
 #endif
 
