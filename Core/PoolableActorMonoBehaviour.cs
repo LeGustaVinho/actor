@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 
-namespace LegendaryTools.Systems.Actor
+namespace LegendaryTools.Actor
 {
     public class PoolableActorMonoBehaviour : ActorMonoBehaviour, IPoolableGameObject
     {

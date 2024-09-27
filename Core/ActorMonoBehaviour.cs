@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace LegendaryTools.Systems.Actor
+namespace LegendaryTools.Actor
 {
     public class ActorMonoBehaviour : 
 #if ODIN_INSPECTOR
@@ -15,6 +15,8 @@ namespace LegendaryTools.Systems.Actor
         [Sirenix.OdinInspector.HideInEditorMode]
 #endif
         public Actor Actor { get; protected set; }
+
+        public bool HasSoul => Actor != null;
         
 #if ODIN_INSPECTOR 
         [Sirenix.OdinInspector.ShowIn(Sirenix.OdinInspector.PrefabKind.InstanceInScene)] 

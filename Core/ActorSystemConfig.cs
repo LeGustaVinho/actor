@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using LegendaryTools.Systems.AssetProvider;
 using UnityEngine;
 
-namespace LegendaryTools.Systems.Actor
+namespace LegendaryTools.Actor
 {
     [Serializable]
     public class TypeOfActorAssetLoader

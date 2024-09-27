@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
 
-namespace LegendaryTools.Systems.Actor
+namespace LegendaryTools.Actor
 {
     [Serializable]
     public abstract class Actor : IActor
@@ -18,7 +18,6 @@ namespace LegendaryTools.Systems.Actor
 #else
         protected static List<TypeOfActorAssetLoader> PreloadQueue;
 #endif
-        
         protected static readonly Dictionary<Type, List<Actor>> AllActorsByType = new Dictionary<Type, List<Actor>>();
         
 #if ODIN_INSPECTOR 
@@ -31,7 +30,6 @@ namespace LegendaryTools.Systems.Actor
         [Sirenix.OdinInspector.HideInEditorMode]
 #endif
         public  GameObject Prefab { get; protected set; }
-
         
         public bool IsDestroyed { get; private set; }
         
@@ -54,113 +52,51 @@ namespace LegendaryTools.Systems.Actor
             RegisterActor();
         }
         
-        public Actor(bool autoCreateGameObject)
+        public Actor(bool autoCreateGameObject) : this()
         {
-            if(autoCreateGameObject) CreateDynamicGameObject();
+            if(autoCreateGameObject)
+            {
+                void CreateAndInitGameObject(object prefabActor)
+                {
+                    if (prefabActor is ActorMonoBehaviour actorMonoBehaviourPrefab)
+                    {
+                        Prefab = actorMonoBehaviourPrefab.gameObject;
+                    }
+                    else if(prefabActor is GameObject actorMonoBehaviourPrefabGameObject)
+                    {
+                        if (actorMonoBehaviourPrefabGameObject.GetComponent<ActorMonoBehaviour>() != null)
+                        {
+                            Prefab = actorMonoBehaviourPrefabGameObject;
+                        }
+                    }
+                
+                    OnAsyncActorBodyLoaded?.Invoke(this, ActorBehaviour);
+                    RegenerateBody();
+                }
+            
+                if (Config != null)
+                {
+                    if (Config.TypeByActorAssetLoadersTable.TryGetValue(this.GetType(), out AssetLoaderConfig assetLoaderConfig))
+                    {
+                        handler = assetLoaderConfig.LoadWithCoroutines<ActorMonoBehaviour>(CreateAndInitGameObject);
+                    }
+                }
+                else
+                {
+                    CreateAndInitGameObject(Prefab);
+                }
+            }
         }
 
-        public Actor(GameObject prefab = null, string name = "")
+        public Actor(GameObject prefab = null, string name = "") : this()
         {
             Prefab = prefab;
-            GameObject newGameObject = CreateGameObject(name, prefab);
-            Initialize(newGameObject);
+            RegenerateBody();
         }
 
-        public Actor(ActorMonoBehaviour actorBehaviour)
+        public Actor(ActorMonoBehaviour actorBehaviour) : this()
         {
             Possess(actorBehaviour);
-            RegisterActor();
-        }
-
-        private void Initialize(GameObject gameObject)
-        {
-            IsDestroyed = false;
-            ActorBehaviour = AddActorBehaviour(gameObject);
-            RegisterActorBehaviourEvents();
-            RegisterActor();
-            ActorBehaviour.BindActor(this);
-        }
-
-        public static void Initialize(ActorSystemAssetLoadableConfig config, Action onInitialize = null)
-        {
-            Config = config;
-            Config.Initialize();
-
-#if ODIN_INSPECTOR
-            List<AssetLoaderConfig> assetLoaderConfigs = new List<AssetLoaderConfig>();
-            foreach (KeyValuePair<Type, AssetLoaderConfig> pair in Config.TypeByActorAssetLoadersTable)
-            {
-                assetLoaderConfigs.Add(pair.Value);
-            }
-            PreloadQueue = assetLoaderConfigs.FindAll(item => item.PreLoad);
-#else
-            PreloadQueue = Config.TypeByActorAssetLoaders.FindAll(item => item.AssetLoaderConfig.PreLoad);
-#endif
-            MonoBehaviourFacade.Instance.StartCoroutine(PreloadingAssets(onInitialize));
-        }
-        
-        private static IEnumerator PreloadingAssets(Action onInitialize = null)
-        {
-            for (int i = PreloadQueue.Count - 1; i >= 0; i--)
-            {
-#if ODIN_INSPECTOR
-                AssetLoaderConfig item = PreloadQueue[i];
-                item.PrepareLoadRoutine<ActorMonoBehaviour>();
-                yield return item.WaitLoadRoutine();
-                PreloadQueue.Remove(item);
-#else
-                TypeOfActorAssetLoader item = PreloadQueue[i];
-                item.AssetLoaderConfig.PrepareLoadRoutine<ActorMonoBehaviour>();
-                yield return item.AssetLoaderConfig.WaitLoadRoutine();
-                PreloadQueue.Remove(item);
-#endif
-            }
-            onInitialize?.Invoke();
-        }
-        
-        public static void Destroy(Actor actor)
-        {
-            actor.Dispose();
-        }
-
-        public static Actor FindObjectOfType(Type type)
-        {
-            if (AllActorsByType.TryGetValue(type, out List<Actor> actors))
-            {
-                return actors.FirstOrDefault();
-            }
-
-            return null;
-        }
-
-        public static T FindObjectOfType<T>() where T : Actor<T>
-        {
-            if (AllActorsByType.TryGetValue(typeof(T), out List<Actor> actors))
-            {
-                return actors.FirstOrDefault() as T;
-            }
-
-            return null;
-        }
-
-        public static Actor[] FindObjectsOfType(Type type)
-        {
-            if (AllActorsByType.TryGetValue(type, out List<Actor> actors))
-            {
-                return actors.ToArray();
-            }
-
-            return null;
-        }
-
-        public static Actor[] FindObjectsOfType<T>() where T : Actor<T>
-        {
-            if (AllActorsByType.TryGetValue(typeof(T), out List<Actor> actors))
-            {
-                return actors.ToArray();
-            }
-
-            return null;
         }
 
 #if ODIN_INSPECTOR 
@@ -205,12 +141,13 @@ namespace LegendaryTools.Systems.Actor
         [Sirenix.OdinInspector.HideInEditorMode]
         [Sirenix.OdinInspector.HideIf("HasBody")]
 #endif
-        public void RegenerateBody()
+        public void RegenerateBody(string name = "")
         {
-            if (ActorBehaviour == null)
+            if (!HasBody)
             {
-                GameObject newGameObject = CreateGameObject(prefab: Prefab);
-                Initialize(newGameObject);
+                GameObject newGameObject = CreateGameObject(string.IsNullOrEmpty(name) ? GetType().ToString() : name, Prefab);
+                ActorMonoBehaviour actorMonoBehaviour = AddOrGetActorBehaviour(newGameObject);
+                Possess(actorMonoBehaviour);
             }
         }
 #if ODIN_INSPECTOR 
@@ -228,6 +165,26 @@ namespace LegendaryTools.Systems.Actor
             }
             
             InternalOnDestroy(DestroyMyGameObject);
+        }
+        
+        protected virtual GameObject CreateGameObject(string name = "", GameObject prefab = null)
+        {
+            if (prefab == null)
+            {
+                return new GameObject(name);
+            }
+
+            return Object.Instantiate(prefab);
+        }
+        
+        protected virtual ActorMonoBehaviour AddOrGetActorBehaviour(GameObject gameObject)
+        {
+            ActorMonoBehaviour actorMonoBehaviour = gameObject.GetComponent<ActorMonoBehaviour>();
+            if (actorMonoBehaviour == null)
+            {
+                actorMonoBehaviour = gameObject.AddComponent<ActorMonoBehaviour>();
+            }
+            return actorMonoBehaviour;
         }
         
         protected void RegisterActorBehaviourEvents()
@@ -310,57 +267,30 @@ namespace LegendaryTools.Systems.Actor
             ActorBehaviour.WhenWillRenderObject -= OnWillRenderObject;
         }
 
-        protected abstract void RegisterActor();
-
-        protected abstract void UnRegisterActor();
-
-        protected virtual GameObject CreateGameObject(string name = "", GameObject prefab = null)
+        protected virtual void RegisterActor()
         {
-            if (prefab == null)
+            Type type = this.GetType();
+            if (!AllActorsByType.ContainsKey(type))
             {
-                return new GameObject(name);
+                AllActorsByType.Add(type, new List<Actor>());
             }
 
-            return Object.Instantiate(prefab);
-        }
-        
-        protected virtual void CreateDynamicGameObject()
-        {
-            void CreateAndInitGameObject(object prefabActor)
+            if (!AllActorsByType[type].Contains(this))
             {
-                if (prefabActor is ActorMonoBehaviour actorMonoBehaviourPrefab)
-                {
-                    Prefab = actorMonoBehaviourPrefab.gameObject;
-                }
-                else if(prefabActor is GameObject actorMonoBehaviourPrefabGameObject)
-                {
-                    if (actorMonoBehaviourPrefabGameObject.GetComponent<ActorMonoBehaviour>() != null)
-                    {
-                        Prefab = actorMonoBehaviourPrefabGameObject;
-                    }
-                }
-                
-                GameObject newGo = CreateGameObject(this.GetType().ToString(), Prefab);
-                Initialize(newGo);
-                OnAsyncActorBodyLoaded?.Invoke(this, ActorBehaviour);
-            }
-            
-            if (Config != null)
-            {
-                if (Config.TypeByActorAssetLoadersTable.TryGetValue(this.GetType(), out AssetLoaderConfig assetLoaderConfig))
-                {
-                    handler = assetLoaderConfig.LoadWithCoroutines<ActorMonoBehaviour>(CreateAndInitGameObject);
-                }
-            }
-            else
-            {
-                CreateAndInitGameObject(Prefab);
+                AllActorsByType[type].Add(this);
             }
         }
 
-        protected virtual ActorMonoBehaviour AddActorBehaviour(GameObject gameObject)
+        protected virtual void UnRegisterActor()
         {
-            return gameObject.AddComponent<ActorMonoBehaviour>();
+            Type type = this.GetType();
+            if (AllActorsByType.ContainsKey(type))
+            {
+                if (AllActorsByType[type].Contains(this))
+                {
+                    AllActorsByType[type].Remove(this);
+                }
+            }
         }
 
         protected virtual void DestroyGameObject(ActorMonoBehaviour actorBehaviour)
@@ -417,6 +347,103 @@ namespace LegendaryTools.Systems.Actor
 
             return true;
         }
+
+        #region Static
+        
+        public static void Initialize(ActorSystemAssetLoadableConfig config, Action onInitialize = null)
+        {
+            Config = config;
+            Config.Initialize();
+
+#if ODIN_INSPECTOR
+            List<AssetLoaderConfig> assetLoaderConfigs = new List<AssetLoaderConfig>();
+            foreach (KeyValuePair<Type, AssetLoaderConfig> pair in Config.TypeByActorAssetLoadersTable)
+            {
+                assetLoaderConfigs.Add(pair.Value);
+            }
+            PreloadQueue = assetLoaderConfigs.FindAll(item => item.PreLoad);
+#else
+            PreloadQueue = Config.TypeByActorAssetLoaders.FindAll(item => item.AssetLoaderConfig.PreLoad);
+#endif
+            MonoBehaviourFacade.Instance.StartCoroutine(PreloadingAssets(onInitialize));
+        }
+
+        public static T AddOrGetActorComponent<T>(GameObject gameObject)
+            where T : ActorMonoBehaviour
+        {
+            T actorMonoBehaviour = gameObject.GetComponent<T>();
+            if (actorMonoBehaviour == null)
+            {
+                actorMonoBehaviour = gameObject.AddComponent<T>();
+            }
+            return actorMonoBehaviour;
+        }
+        
+        public static void Destroy(Actor actor)
+        {
+            actor.Dispose();
+        }
+
+        public static Actor FindObjectOfType(Type type)
+        {
+            if (AllActorsByType.TryGetValue(type, out List<Actor> actors))
+            {
+                return actors.FirstOrDefault();
+            }
+
+            return null;
+        }
+
+        public static T FindObjectOfType<T>() where T : Actor
+        {
+            if (AllActorsByType.TryGetValue(typeof(T), out List<Actor> actors))
+            {
+                return actors.FirstOrDefault() as T;
+            }
+
+            return null;
+        }
+
+        public static Actor[] FindObjectsOfType(Type type)
+        {
+            if (AllActorsByType.TryGetValue(type, out List<Actor> actors))
+            {
+                return actors.ToArray();
+            }
+
+            return null;
+        }
+
+        public static Actor[] FindObjectsOfType<T>() where T : Actor
+        {
+            if (AllActorsByType.TryGetValue(typeof(T), out List<Actor> actors))
+            {
+                return actors.ToArray();
+            }
+
+            return null;
+        }
+        
+        private static IEnumerator PreloadingAssets(Action onInitialize = null)
+        {
+            for (int i = PreloadQueue.Count - 1; i >= 0; i--)
+            {
+#if ODIN_INSPECTOR
+                AssetLoaderConfig item = PreloadQueue[i];
+                item.PrepareLoadRoutine<ActorMonoBehaviour>();
+                yield return item.WaitLoadRoutine();
+                PreloadQueue.Remove(item);
+#else
+                TypeOfActorAssetLoader item = PreloadQueue[i];
+                item.AssetLoaderConfig.PrepareLoadRoutine<ActorMonoBehaviour>();
+                yield return item.AssetLoaderConfig.WaitLoadRoutine();
+                PreloadQueue.Remove(item);
+#endif
+            }
+            onInitialize?.Invoke();
+        }
+        
+        #endregion
         
         #region MonoBehaviour calls
 
@@ -1077,49 +1104,7 @@ namespace LegendaryTools.Systems.Actor
     }
 
     [Serializable]
-    public class Actor<TClass> : Actor
-    {
-        public Actor() : base()
-        {
-        }
-        
-        public Actor(bool autoCreateGameObject) : base(autoCreateGameObject)
-        {
-        }
-
-        public Actor(GameObject prefab = null, string name = "") : base(prefab, name)
-        {
-        }
-
-        protected override void RegisterActor()
-        {
-            Type type = typeof(TClass);
-            if (!AllActorsByType.ContainsKey(type))
-            {
-                AllActorsByType.Add(type, new List<Actor>());
-            }
-
-            if (!AllActorsByType[type].Contains(this))
-            {
-                AllActorsByType[type].Add(this);
-            }
-        }
-
-        protected override void UnRegisterActor()
-        {
-            Type type = typeof(TClass);
-            if (AllActorsByType.ContainsKey(type))
-            {
-                if (AllActorsByType[type].Contains(this))
-                {
-                    AllActorsByType[type].Remove(this);
-                }
-            }
-        }
-    }
-
-    [Serializable]
-    public class Actor<TClass, TBehaviour> : Actor<TClass>, IActorTyped<TBehaviour>
+    public class Actor<TBehaviour> : Actor, IActorTyped<TBehaviour>
         where TBehaviour : ActorMonoBehaviour
     {
 #if ODIN_INSPECTOR
@@ -1152,9 +1137,9 @@ namespace LegendaryTools.Systems.Actor
             return base.Possess(target);
         }
 
-        protected override ActorMonoBehaviour AddActorBehaviour(GameObject gameObject)
+        protected override ActorMonoBehaviour AddOrGetActorBehaviour(GameObject gameObject)
         {
-            return gameObject.AddComponent<TBehaviour>();
+            return Actor.AddOrGetActorComponent<TBehaviour>(gameObject);
         }
     }
 }

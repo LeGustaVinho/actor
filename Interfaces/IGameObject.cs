@@ -2,7 +2,7 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace LegendaryTools.Systems.Actor
+namespace LegendaryTools.Actor
 {
     public interface IGameObject : IUnityObject
     {

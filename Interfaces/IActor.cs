@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace LegendaryTools.Systems.Actor
+namespace LegendaryTools.Actor
 {
     public interface IActor : IMonoBehaviour, IRectTransform, IGameObject, IDisposable
     {
@@ -19,7 +19,7 @@ namespace LegendaryTools.Systems.Actor
         event Action<Actor, ActorMonoBehaviour> OnDestroyed;
         bool Possess(ActorMonoBehaviour target);
         void Eject();
-        void RegenerateBody();
+        void RegenerateBody(string name = "");
     }
 
     public interface IActorTyped<TBehaviour> : IActor

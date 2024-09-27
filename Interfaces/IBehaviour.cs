@@ -1,4 +1,4 @@
-﻿namespace LegendaryTools.Systems.Actor
+﻿namespace LegendaryTools.Actor
 {
     public interface IBehaviour : IComponent
     {

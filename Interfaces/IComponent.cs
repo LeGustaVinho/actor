@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace LegendaryTools.Systems.Actor
+namespace LegendaryTools.Actor
 {
     public interface IComponent : IUnityObject
     {

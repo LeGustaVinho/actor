@@ -1,8 +1,8 @@
 ﻿using UnityEngine;
 
-namespace LegendaryTools.Systems.Actor
+namespace LegendaryTools.Actor
 {
-    public class PoolableActor<TClass, TBehaviour> : Actor<TClass, TBehaviour>
+    public class PoolableActor<TBehaviour> : Actor<TBehaviour>
         where TBehaviour : PoolableActorMonoBehaviour
     {
         private static GameObject EmptyGameObject = new GameObject("EmptyGameObject");
