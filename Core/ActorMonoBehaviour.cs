@@ -105,7 +105,7 @@ namespace LegendaryTools.Actor
         {
             Actor aux = Actor;
             Actor = null;
-            OnActorBind(this, aux);
+            OnActorUnBind(this, aux);
             OnActorUnbinded?.Invoke(this, aux);
         }
 

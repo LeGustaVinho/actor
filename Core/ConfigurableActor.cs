@@ -12,10 +12,10 @@ namespace LegendaryTools.Actor
         
         public ConfigurableActor() : base()
         {
-            OnPossessed += InternalOnPossessed;
+            OnPossession += InternalOnPossession;
         }
 
-        protected virtual void InternalOnPossessed(Actor actor, ActorMonoBehaviour actorMonoBehaviour)
+        protected virtual void InternalOnPossession(Actor actor, ActorMonoBehaviour actorMonoBehaviour)
         {
             if (actorMonoBehaviour is ConfigurableActorMonoBehaviour<TConfig> configurableActorMonoBehaviour)
             {

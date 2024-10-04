@@ -41,7 +41,7 @@ namespace LegendaryTools.Actor
         public bool HasBody => ActorBehaviour != null;
         
         public event Action<Actor, ActorMonoBehaviour> OnAsyncActorBodyLoaded;
-        public event Action<Actor, ActorMonoBehaviour> OnPossessed;
+        public event Action<Actor, ActorMonoBehaviour> OnPossession;
         public event Action<Actor, ActorMonoBehaviour> OnEjected;
         public event Action<Actor, ActorMonoBehaviour> OnDestroyed;
 
@@ -77,9 +77,9 @@ namespace LegendaryTools.Actor
                 if (Config != null)
                 {
                     if (Config.TypeByActorAssetLoadersTable.TryGetValue(this.GetType(), out AssetLoaderConfig assetLoaderConfig))
-                    {
                         handler = assetLoaderConfig.LoadWithCoroutines<ActorMonoBehaviour>(CreateAndInitGameObject);
-                    }
+                    else
+                        CreateAndInitGameObject(Prefab);
                 }
                 else
                 {
@@ -115,7 +115,7 @@ namespace LegendaryTools.Actor
             ActorBehaviour = target;
             ActorBehaviour.BindActor(this);
             RegisterActorBehaviourEvents();
-            OnPossessed?.Invoke(this, target);
+            OnPossession?.Invoke(this, target);
             return true;
         }
 
@@ -124,7 +124,7 @@ namespace LegendaryTools.Actor
         [Sirenix.OdinInspector.HideInEditorMode]
         [Sirenix.OdinInspector.ShowIf("HasBody")]
 #endif
-        public void Eject()
+        public virtual void Eject()
         {
             if (ActorBehaviour != null)
             {
@@ -141,12 +141,13 @@ namespace LegendaryTools.Actor
         [Sirenix.OdinInspector.HideInEditorMode]
         [Sirenix.OdinInspector.HideIf("HasBody")]
 #endif
-        public void RegenerateBody(string name = "")
+        public virtual void RegenerateBody(string name = "")
         {
             if (!HasBody)
             {
                 GameObject newGameObject = CreateGameObject(string.IsNullOrEmpty(name) ? GetType().ToString() : name, Prefab);
                 ActorMonoBehaviour actorMonoBehaviour = AddOrGetActorBehaviour(newGameObject);
+                actorMonoBehaviour.AutoCreateActor = false;
                 Possess(actorMonoBehaviour);
             }
         }
@@ -354,17 +355,11 @@ namespace LegendaryTools.Actor
         {
             Config = config;
             Config.Initialize();
-
-#if ODIN_INSPECTOR
-            List<AssetLoaderConfig> assetLoaderConfigs = new List<AssetLoaderConfig>();
+            PreloadQueue = new List<AssetLoaderConfig>(Config.TypeByActorAssetLoaders.Count);
             foreach (KeyValuePair<Type, AssetLoaderConfig> pair in Config.TypeByActorAssetLoadersTable)
             {
-                assetLoaderConfigs.Add(pair.Value);
+                PreloadQueue.Add(pair.Value);
             }
-            PreloadQueue = assetLoaderConfigs.FindAll(item => item.PreLoad);
-#else
-            PreloadQueue = Config.TypeByActorAssetLoaders.FindAll(item => item.AssetLoaderConfig.PreLoad);
-#endif
             MonoBehaviourFacade.Instance.StartCoroutine(PreloadingAssets(onInitialize));
         }
 
@@ -1129,12 +1124,15 @@ namespace LegendaryTools.Actor
 
         public override bool Possess(ActorMonoBehaviour target)
         {
-            if (target.Actor != null)
-            {
-                return false;
-            }
-            BodyBehaviour = target as TBehaviour;
-            return base.Possess(target);
+            bool result = base.Possess(target);
+            BodyBehaviour = ActorBehaviour as TBehaviour;
+            return result;
+        }
+
+        public override void Eject()
+        {
+            base.Eject();
+            BodyBehaviour = null;
         }
 
         protected override ActorMonoBehaviour AddOrGetActorBehaviour(GameObject gameObject)

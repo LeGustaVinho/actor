@@ -14,7 +14,7 @@ namespace LegendaryTools.Actor
         bool IsAlive { get; }
         bool HasBody { get; }
         event Action<Actor, ActorMonoBehaviour> OnAsyncActorBodyLoaded;
-        event Action<Actor, ActorMonoBehaviour> OnPossessed;
+        event Action<Actor, ActorMonoBehaviour> OnPossession;
         event Action<Actor, ActorMonoBehaviour> OnEjected;
         event Action<Actor, ActorMonoBehaviour> OnDestroyed;
         bool Possess(ActorMonoBehaviour target);
