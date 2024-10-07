@@ -10,17 +10,14 @@ namespace LegendaryTools.Actor
 #endif
         public TConfig ActorConfig { get; protected set; }
         
-        public ConfigurableActor() : base()
+        public override bool Possess(ActorMonoBehaviour target)
         {
-            OnPossession += InternalOnPossession;
-        }
-
-        protected virtual void InternalOnPossession(Actor actor, ActorMonoBehaviour actorMonoBehaviour)
-        {
-            if (actorMonoBehaviour is ConfigurableActorMonoBehaviour<TConfig> configurableActorMonoBehaviour)
+            bool result = base.Possess(target);
+            if (result && target is ConfigurableActorMonoBehaviour<TConfig> configurableActorMonoBehaviour)
             {
                 ActorConfig = configurableActorMonoBehaviour.Config;
             }
+            return result;
         }
     }
 }

@@ -12,12 +12,7 @@ namespace LegendaryTools.Actor
     public abstract class Actor : IActor
     {
         protected static ActorSystemAssetLoadableConfig Config;
-        
-#if ODIN_INSPECTOR
         protected static List<AssetLoaderConfig> PreloadQueue;
-#else
-        protected static List<TypeOfActorAssetLoader> PreloadQueue;
-#endif
         protected static readonly Dictionary<Type, List<Actor>> AllActorsByType = new Dictionary<Type, List<Actor>>();
         
 #if ODIN_INSPECTOR 
@@ -423,17 +418,10 @@ namespace LegendaryTools.Actor
         {
             for (int i = PreloadQueue.Count - 1; i >= 0; i--)
             {
-#if ODIN_INSPECTOR
                 AssetLoaderConfig item = PreloadQueue[i];
                 item.PrepareLoadRoutine<ActorMonoBehaviour>();
                 yield return item.WaitLoadRoutine();
                 PreloadQueue.Remove(item);
-#else
-                TypeOfActorAssetLoader item = PreloadQueue[i];
-                item.AssetLoaderConfig.PrepareLoadRoutine<ActorMonoBehaviour>();
-                yield return item.AssetLoaderConfig.WaitLoadRoutine();
-                PreloadQueue.Remove(item);
-#endif
             }
             onInitialize?.Invoke();
         }

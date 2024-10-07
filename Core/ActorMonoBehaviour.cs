@@ -3,12 +3,7 @@ using UnityEngine;
 
 namespace LegendaryTools.Actor
 {
-    public class ActorMonoBehaviour : 
-#if ODIN_INSPECTOR
-        Sirenix.OdinInspector.SerializedMonoBehaviour, IActorMonoBehaviour
-#else
-        MonoBehaviour, IActorMonoBehaviour
-#endif
+    public class ActorMonoBehaviour : UnityBehaviour, IActorMonoBehaviour
     {
 #if ODIN_INSPECTOR 
         [Sirenix.OdinInspector.ShowInInspector]
