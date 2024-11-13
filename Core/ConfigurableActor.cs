@@ -3,7 +3,7 @@
 namespace LegendaryTools.Actor
 {
     public abstract class ConfigurableActor<TConfig> : Actor<ConfigurableActorMonoBehaviour<TConfig>>
-        where TConfig : ActorConfig
+        where TConfig : ScriptableObject
     {
 #if ODIN_INSPECTOR
         [Sirenix.OdinInspector.ShowInInspector]
