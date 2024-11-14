@@ -995,51 +995,51 @@ namespace LegendaryTools.Actor
 
         public Vector2 AnchoredPosition
         {
-            get => RectTransform.anchoredPosition;
+            get => RectTransform != null ? RectTransform.anchoredPosition : default;
             set => RectTransform.anchoredPosition = value;
         }
 
         public Vector3 AnchoredPosition3D
         {
-            get => RectTransform.anchoredPosition3D;
+            get =>  RectTransform != null ? RectTransform.anchoredPosition3D : default;
             set => RectTransform.anchoredPosition3D = value;
         }
 
         public Vector2 AnchorMax
         {
-            get => RectTransform.anchorMax;
+            get =>  RectTransform != null ? RectTransform.anchorMax : default;
             set => RectTransform.anchorMax = value;
         }
 
         public Vector2 AnchorMin
         {
-            get => RectTransform.anchorMin;
+            get =>  RectTransform != null ? RectTransform.anchorMin : default;
             set => RectTransform.anchorMin = value;
         }
 
         public Vector2 OffsetMax
         {
-            get => RectTransform.offsetMax;
+            get =>  RectTransform != null ? RectTransform.offsetMax : default;
             set => RectTransform.offsetMin = value;
         }
 
         public Vector2 OffsetMin
         {
-            get => RectTransform.offsetMin;
+            get =>  RectTransform != null ? RectTransform.offsetMin : default;
             set => RectTransform.offsetMin = value;
         }
 
         public Vector2 Pivot
         {
-            get => RectTransform.pivot;
+            get =>  RectTransform != null ? RectTransform.pivot : default;
             set => RectTransform.pivot = value;
         }
 
-        public Rect Rect => RectTransform.rect;
+        public Rect Rect =>  RectTransform != null ? RectTransform.rect : default;
 
         public Vector2 SizeDelta
         {
-            get => RectTransform.sizeDelta;
+            get =>  RectTransform != null ? RectTransform.sizeDelta : default;
             set => RectTransform.sizeDelta = value;
         }
 
@@ -1108,6 +1108,11 @@ namespace LegendaryTools.Actor
         public Actor(GameObject prefab = null, string name = "") : base(prefab, name)
         {
             BodyBehaviour = ActorBehaviour as TBehaviour;
+        }
+        
+        public Actor(TBehaviour actorBehaviour) : base(actorBehaviour)
+        {
+            
         }
 
         public override bool Possess(ActorMonoBehaviour target)

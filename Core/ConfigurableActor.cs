@@ -10,6 +10,22 @@ namespace LegendaryTools.Actor
 #endif
         public TConfig ActorConfig { get; protected set; }
         
+        public ConfigurableActor() : base()
+        {
+        }
+        
+        public ConfigurableActor(bool autoCreateGameObject) : base(autoCreateGameObject)
+        {
+        }
+
+        public ConfigurableActor(GameObject prefab = null, string name = "") : base(prefab, name)
+        {
+        }
+
+        public ConfigurableActor(ConfigurableActorMonoBehaviour<TConfig> actorBehaviour) : base(actorBehaviour)
+        {
+        }
+        
         public override bool Possess(ActorMonoBehaviour target)
         {
             bool result = base.Possess(target);
