@@ -8,7 +8,7 @@ The Actor System has two basic concepts:
 - ActorMonoBehaviour: It is the class that will inherit from MonoBehaviour and will be the physical representation of the object in the scene, as if it were a **Body**.
 - Actor: It is the class that owns the logic/mechanics of this object, representing the **Soul** of this entity.
 
-The **Actor (Soul) **will have a **ActorMonoBehaviour (Body**), when making this combination the object gains "life", that is, the Soul is controlling the Body.
+The **Actor (Soul)** will have a **ActorMonoBehaviour(Body)**, when making this combination the object gains "life", that is, the Soul is controlling the Body.
 
 **Example:**
 
